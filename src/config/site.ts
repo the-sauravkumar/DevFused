@@ -23,8 +23,8 @@ export type SiteConfig = {
 export const siteConfig: SiteConfig = {
   name: "DevFused",
   description: "Aspiring Software Developer with 3+ years of experience in full-stack applications, blockchain, and cloud services. Portfolio of Saurav Kumar. Built with Next.js, Gemini, and TailwindCSS.",
-  url: "https://persona-ai.vercel.app", // Replace with your actual domain
-  ogImage: "https://persona-ai.vercel.app/og.jpg", // Replace with your actual OG image URL
+  url: "https://dev-fused.vercel.app",
+  ogImage: "https://dev-fused.vercel.app/og.jpg",
   links: {
     twitter: "https://x.com/SauravK49267437", 
     github: "https://github.com/the-sauravkumar",
