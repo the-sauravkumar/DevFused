@@ -41,7 +41,7 @@ async function fetchGithubProjects(): Promise<GithubRepo[]> {
     
     const token = process.env.NEXT_PUBLIC_GITHUB_ACCESS_TOKEN;
     if (!token) {
-      console.error("GitHub token (NEXT_PUBLIC_GITHUB_ACCESS_TOKEN) is missing.");
+      // console.error("GitHub token (NEXT_PUBLIC_GITHUB_ACCESS_TOKEN) is missing.");
       throw new Error("GitHub token (NEXT_PUBLIC_GITHUB_ACCESS_TOKEN) is missing. This token is required to fetch project data from /user/repos. Please set it in your environment variables.");
     }
     headers['Authorization'] = `Bearer ${token}`;
@@ -53,14 +53,14 @@ async function fetchGithubProjects(): Promise<GithubRepo[]> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`GitHub API error (${GITHUB_API_URL}): ${response.status} ${response.statusText}. Response: ${errorText.substring(0, 500)}`);
+      // console.error(`GitHub API error (${GITHUB_API_URL}): ${response.status} ${response.statusText}. Response: ${errorText.substring(0, 500)}`);
       throw new Error(`GitHub API request failed (${response.status}): ${response.statusText}. Check token permissions (it needs 'repo' or 'public_repo' scope for /user/repos) and API rate limits. Full error: ${errorText.substring(0, 200)}`);
     }
     
     const data: GithubRepo[] = await response.json();
     return data.filter((repo: GithubRepo) => !repo.fork);
   } catch (error) {
-    console.error("Detailed error in fetchGithubProjects:", error);
+    // console.error("Detailed error in fetchGithubProjects:", error);
     if (error instanceof Error && (error.message.startsWith("GitHub token") || error.message.startsWith("GitHub API request failed"))) {
       throw error; 
     }
@@ -76,7 +76,7 @@ function decodeBase64Content(content: string): string {
       return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
   } catch (error) {
-    console.warn("Failed to decode base64 content:", error);
+    // console.warn("Failed to decode base64 content:", error);
     return ""; 
   }
 }
@@ -103,9 +103,9 @@ async function fetchReadmeContent(owner: string, repoName: string): Promise<stri
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "Could not read error body");
       if (response.status === 404) {
-        console.warn(`README not found for ${owner}/${repoName} (404). URL: ${readmeUrl}`);
+        // console.warn(`README not found for ${owner}/${repoName} (404). URL: ${readmeUrl}`);
       } else {
-        console.error(`Error fetching README for ${owner}/${repoName} from ${readmeUrl}: ${response.status} ${response.statusText}. Body: ${errorBody.substring(0,200)}`);
+        // console.error(`Error fetching README for ${owner}/${repoName} from ${readmeUrl}: ${response.status} ${response.statusText}. Body: ${errorBody.substring(0,200)}`);
       }
       return "";
     }
@@ -116,7 +116,7 @@ async function fetchReadmeContent(owner: string, repoName: string): Promise<stri
         if (data.content && data.encoding === 'base64') {
             return decodeBase64Content(data.content);
         } else {
-            console.warn(`Received JSON for ${owner}/${repoName} README but no base64 content. Data:`, data);
+            // console.warn(`Received JSON for ${owner}/${repoName} README but no base64 content. Data:`, data);
             return ""; 
         }
     } else { 
@@ -125,12 +125,12 @@ async function fetchReadmeContent(owner: string, repoName: string): Promise<stri
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        console.warn(`Request timeout fetching README for ${owner}/${repoName} from ${readmeUrl}.`);
+        // console.warn(`Request timeout fetching README for ${owner}/${repoName} from ${readmeUrl}.`);
       } else {
-        console.warn(`Network or other error fetching README for ${owner}/${repoName} from ${readmeUrl}: ${error.message}. Check server network, DNS, and GitHub status.`);
+        // console.warn(`Network or other error fetching README for ${owner}/${repoName} from ${readmeUrl}: ${error.message}. Check server network, DNS, and GitHub status.`);
       }
     } else {
-      console.warn(`Unknown error fetching README for ${owner}/${repoName} from ${readmeUrl}:`, error);
+      // console.warn(`Unknown error fetching README for ${owner}/${repoName} from ${readmeUrl}:`, error);
     }
     return "";
   }
@@ -178,11 +178,11 @@ export function ProjectsSection() {
     setIsLoading(true);
     setError(null);
     let fetchedRepos: GithubRepo[] = [];
-    console.log("Attempting to load projects...");
+    // console.log("Attempting to load projects...");
 
     try {
       fetchedRepos = await fetchGithubProjects();
-      console.log("Fetched GitHub repos:", fetchedRepos.length, fetchedRepos.map(r => r.name).join(', '));
+      // console.log("Fetched GitHub repos:", fetchedRepos.length, fetchedRepos.map(r => r.name).join(', '));
 
       if (fetchedRepos.length === 0) {
         setError("No public, non-forked repositories found on your GitHub account. Or, there might be an issue with the GitHub token or its permissions for the /user/repos endpoint.");
@@ -191,26 +191,26 @@ export function ProjectsSection() {
         return;
       }
       
-      console.log(`Creating ${fetchedRepos.length} promises for project processing.`);
+      // console.log(`Creating ${fetchedRepos.length} promises for project processing.`);
       const projectsWithSummariesPromises = fetchedRepos.map(async (repo, repoIndex) => {
         let summaryDescription = repo.description || "No description available.";
         let summaryTechStack: string[] = repo.topics || [];
         
         if (repoIndex < PROJECTS_TO_FULLY_PROCESS) { 
-            console.log(`[${repo.name}] Starting full processing (README + AI)`);
+            // console.log(`[${repo.name}] Starting full processing (README + AI)`);
             try {
               const readmeContent = await fetchReadmeContent(repo.owner.login, repo.name);
-              console.log(`[${repo.name}] Fetched README (length: ${readmeContent.length}).`);
+              // console.log(`[${repo.name}] Fetched README (length: ${readmeContent.length}).`);
               
               if (readmeContent && readmeContent.trim().length > 0) {
-                console.log(`[${repo.name}] Summarizing README with AI.`);
+                // console.log(`[${repo.name}] Summarizing README with AI.`);
                 try {
                   const summaryResult = await promiseWithTimeout(
                      summarizeProjectReadme(readmeContent, repo.description),
                      20000, 
                      new Error(`AI summary timed out for ${repo.name}`)
                   );
-                  console.log(`[${repo.name}] AI Summary result:`, summaryResult.summary.substring(0,50)+"...");
+                  // console.log(`[${repo.name}] AI Summary result:`, summaryResult.summary.substring(0,50)+"...");
 
                   if (summaryResult.summary && 
                       summaryResult.summary !== "Could not summarize README content." &&
@@ -222,16 +222,16 @@ export function ProjectsSection() {
                     summaryTechStack = Array.from(new Set([...(repo.topics || []), ...summaryResult.techStack]));
                   }
                 } catch (aiError) {
-                   console.warn(`[${repo.name}] AI summarization process failed (timeout or error):`, aiError instanceof Error ? aiError.message : aiError);
+                   // console.warn(`[${repo.name}] AI summarization process failed (timeout or error):`, aiError instanceof Error ? aiError.message : aiError);
                 }
               } else {
-                console.log(`[${repo.name}] README is empty or not found, skipping AI summary.`);
+                // console.log(`[${repo.name}] README is empty or not found, skipping AI summary.`);
               }
             } catch (readmeError) {
-              console.warn(`[${repo.name}] README fetching/processing failed:`, readmeError instanceof Error ? readmeError.message : readmeError);
+              // console.warn(`[${repo.name}] README fetching/processing failed:`, readmeError instanceof Error ? readmeError.message : readmeError);
             }
         } else {
-            console.log(`[${repo.name}] Using basic fallback (no README/AI).`);
+            // console.log(`[${repo.name}] Using basic fallback (no README/AI).`);
         }
 
         if (!summaryDescription || summaryDescription.trim() === "" || summaryDescription === "No description available.") {
@@ -245,13 +245,13 @@ export function ProjectsSection() {
       });
       
       const settledResults = await Promise.allSettled(projectsWithSummariesPromises);
-      console.log("Settled all project processing promises:", settledResults.length, "results.");
+      // console.log("Settled all project processing promises:", settledResults.length, "results.");
       
       const processedProjects: Project[] = settledResults.map((result, index) => {
         if (result.status === 'fulfilled') {
           return result.value;
         } else {
-          console.warn(`Processing project ${fetchedRepos[index].name} failed unexpectedly in Promise.allSettled, using fallback data. Error:`, result.reason);
+          // console.warn(`Processing project ${fetchedRepos[index].name} failed unexpectedly in Promise.allSettled, using fallback data. Error:`, result.reason);
           const repo = fetchedRepos[index];
           return { 
             ...repo,
@@ -261,11 +261,11 @@ export function ProjectsSection() {
         }
       });
       
-      console.log("Final processed projects:", processedProjects.length, processedProjects.map(p => p.name).join(', '));
+      // console.log("Final processed projects:", processedProjects.length, processedProjects.map(p => p.name).join(', '));
       setProjects(processedProjects);
 
     } catch (e) { 
-      console.error("Critical error in loadProjects callback (e.g., fetchGithubProjects failed):", e);
+      // console.error("Critical error in loadProjects callback (e.g., fetchGithubProjects failed):", e);
       if (e instanceof Error) {
         setError(e.message); 
       } else {
@@ -275,7 +275,7 @@ export function ProjectsSection() {
     } finally {
       setIsLoading(false);
       isLoadingRef.current = false; // Reset the guard
-      console.log("Finished loading projects. isLoading state is now false.");
+      // console.log("Finished loading projects. isLoading state is now false.");
     }
   }, []); 
 
