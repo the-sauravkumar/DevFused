@@ -49,7 +49,7 @@ export function Footer() {
           variants={footerTextVariants}
           className="text-sm text-muted-foreground font-semibold"
         >
-          &copy; {new Date().getFullYear()} {siteConfig.name}. Built by The Saurav Kumar.
+          &copy; {new Date().getFullYear()} {siteConfig.name}. Built by Saurav Kumar.
         </motion.p>
         <div className="flex items-center space-x-6">
           <motion.div whileHover="hover" whileTap="tap" variants={iconVariants}>
