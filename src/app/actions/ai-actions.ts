@@ -1,9 +1,8 @@
-
 "use server";
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { answerQuestionsFromResume, summarizeGithubReadme } from "@/ai/flows";
 import type { AnswerQuestionsFromResumeInput, SummarizeGithubReadmeInput } from "@/ai/flows";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Types for better type safety
 interface GitHubProfile {
@@ -42,629 +41,274 @@ interface ProjectSummaryResult {
 // Constants
 const DEFAULT_USERNAME = "the-sauravkumar";
 const GITHUB_API_BASE = "https://api.github.com";
-const MAX_README_LENGTH = 50000;
+const MAX_README_LENGTH = 6000;
 const REQUEST_TIMEOUT = 15000;
-// Initialize the GoogleGenerativeAI client
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+const MAX_DESCRIPTION_WORDS = 50;
 
-// Enhanced GitHub API helper with better error handling and caching
-async function fetchGitHubProfile(username: string = DEFAULT_USERNAME): Promise<{
-  profile: GitHubProfile;
-  repositories: GitHubRepository[];
-} | null> {
-  try {
-    const headers: HeadersInit = {
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    };
-
-    // Add authentication if token is available
-    const token = process.env.GITHUB_ACCESS_TOKEN || process.env.NEXT_PUBLIC_GITHUB_ACCESS_TOKEN;
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    // Fetch profile and repositories concurrently
-    const [profileResponse, reposResponse] = await Promise.all([
-      fetch(`${GITHUB_API_BASE}/users/${username}`, {
-        headers,
-        next: { revalidate: 3600 }, // Cache for 1 hour
-      }),
-      fetch(`${GITHUB_API_BASE}/users/${username}/repos?per_page=100&sort=updated&type=owner`, {
-        headers,
-        next: { revalidate: 1800 }, // Cache for 30 minutes
-      })
-    ]);
-
-    if (!profileResponse.ok) {
-      throw new Error(`Profile fetch failed: ${profileResponse.status} ${profileResponse.statusText}`);
-    }
-
-    if (!reposResponse.ok) {
-      throw new Error(`Repositories fetch failed: ${reposResponse.status} ${reposResponse.statusText}`);
-    }
-    
-    const [profile, repositories] = await Promise.all([
-      profileResponse.json() as Promise<GitHubProfile>,
-      reposResponse.json() as Promise<GitHubRepository[]>
-    ]);
-    
-    // Filter out forks and sort by relevance
-    const filteredRepos = repositories
-      .filter(repo => !repo.name.includes('fork'))
-      .sort((a, b) => {
-        // Sort by stars, then by recent activity
-        if (a.stargazers_count !== b.stargazers_count) {
-          return b.stargazers_count - a.stargazers_count;
-        }
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      });
-    
-    return { profile, repositories: filteredRepos };
-  } catch (error) {
-    console.error("Error fetching GitHub profile:", error);
-    return null;
-  }
+// Word counting and truncation utilities
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(word => word.length > 0).length;
 }
 
-// Enhanced project context generation with better formatting
-async function getCompleteProjectContext(username: string = DEFAULT_USERNAME): Promise<string> {
-  const githubData = await fetchGitHubProfile(username);
-  
-  if (!githubData) {
-    return "## GitHub Profile\n\n*GitHub profile data is currently unavailable.*";
+function truncateToWordLimit(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) {
+    return text;
   }
-  
-  const { profile, repositories } = githubData;
-  
-  // Build comprehensive project context with better markdown formatting
-  let projectContext = `## 👨‍💻 GitHub Profile: ${profile.name || username}
-
-**🌍 Location:** ${profile.location || "Not specified"}  
-**📝 Bio:** ${profile.bio || "No bio available"}  
-**📚 Public Repositories:** ${profile.public_repos}  
-**👥 Network:** ${profile.followers} followers • ${profile.following} following  
-**🔗 Profile:** [${profile.login}](${profile.html_url})
-
----
-
-## 🚀 Featured Projects Portfolio
-
-`;
-
-  // Group repositories by language for better organization
-  const reposByLanguage = repositories.reduce((acc, repo) => {
-    const lang = repo.language || 'Other';
-    if (!acc[lang]) acc[lang] = [];
-    acc[lang].push(repo);
-    return acc;
-  }, {} as Record<string, GitHubRepository[]>);
-
-  // Add top repositories with enhanced formatting
-  repositories.slice(0, 15).forEach((repo, index) => {
-    const lastUpdated = new Date(repo.updated_at).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-
-    projectContext += `### ${index + 1}. **${repo.name}**
-
-${repo.description ? `> ${repo.description}` : '*No description provided*'}
-
-**🔧 Tech Stack:** \`${repo.language || 'Not specified'}\`  
-**⭐ Stars:** ${repo.stargazers_count} • **🍴 Forks:** ${repo.forks_count}  
-**📅 Last Updated:** ${lastUpdated}  
-**🏷️ Topics:** ${repo.topics?.length ? repo.topics.map(topic => `\`${topic}\``).join(', ') : 'None'}  
-**🔗 Repository:** [View on GitHub](${repo.html_url})${repo.homepage ? ` • [Live Demo](${repo.homepage})` : ''}
-
----
-
-`;
-  });
-
-  // Add language distribution summary
-  const languageStats = Object.entries(reposByLanguage)
-    .sort(([,a], [,b]) => b.length - a.length)
-    .slice(0, 8);
-
-  if (languageStats.length > 0) {
-    projectContext += `## 📊 Technology Distribution
-
-| Language | Projects | Percentage |
-|----------|----------|------------|
-`;
-    
-    languageStats.forEach(([lang, repos]) => {
-      const percentage = ((repos.length / repositories.length) * 100).toFixed(1);
-      projectContext += `| **${lang}** | ${repos.length} | ${percentage}% |\n`;
-    });
-    
-    projectContext += '\n---\n\n';
-  }
-
-  return projectContext;
+  return words.slice(0, maxWords).join(' ') + '...';
 }
 
-// Enhanced chatbot interaction with better context management
-export async function handleChatbotInteraction(
-  question: string, 
-  resumeContext: string
-): Promise<string> {
-  try {
-    // Input validation
-    if (!question?.trim()) {
-      return "## ❓ Question Required\n\nPlease provide a question for me to answer.";
-    }
+function cleanAndTruncateDescription(description: string): string {
+  // Remove markdown formatting and clean text
+  let cleaned = description
+    .replace(/^#+\s*/gm, '') // Remove headers
+    .replace(/\*\*/g, '') // Remove bold
+    .replace(/\*/g, '') // Remove italic
+    .replace(/`([^`]+)`/g, '$1') // Remove code backticks
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links, keep text
+    .replace(/>\s*/gm, '') // Remove blockquotes
+    .replace(/\n+/g, ' ') // Replace newlines with spaces
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/[📁🔧⚠️💡🎯✨📝🌍📚👥🔗🚀⭐🍴📅🏷️📊]/g, '') // Remove emojis
+    .trim();
 
-    if (question.length > 2000) {
-      return "## 📝 Question Too Long\n\nPlease keep your question under 2000 characters for better processing.";
-    }
-
-    // Get complete GitHub profile context with timeout
-    const githubProjectContext = await Promise.race([
-      getCompleteProjectContext(DEFAULT_USERNAME),
-      new Promise<string>((_, reject) => 
-        setTimeout(() => reject(new Error('GitHub context fetch timeout')), REQUEST_TIMEOUT)
-      )
-    ]);
-    
-    // Combine contexts with enhanced structure
-    const enhancedContext = `# 📋 Complete Professional Profile
-
-## 📄 Resume Information
-${resumeContext}
-
-## 💻 GitHub Portfolio & Projects
-${githubProjectContext}
-
----
-
-*This context includes both resume details and complete GitHub profile with all projects, providing comprehensive professional background.*`;
-
-    // Enhanced question with specific formatting and context instructions
-    const enhancedQuestion = `${question}
-
-## 🎯 Context & Instructions
-
-**Available Information:** Complete resume + GitHub profile (github.com/${DEFAULT_USERNAME}) with all projects
-
-**Key Projects to Reference:**
-- **CurveShapeNet** - Advanced 2D shape analysis toolkit
-- **Hotel-Management-System** - Comprehensive hospitality management solution  
-- **Human-Verification-Captcha** - Security verification system
-- **Registration-System** - User registration platform
-- **University-Management-System** - Educational institution management
-- **AE-Charity-Connect** - Charity connection platform
-- **CareerZenith** - Career development platform (current focus)
-
-## ✨ Response Formatting Requirements
-
-Please format your response using **professional Markdown** with:
-
-- **Headers:** Use \`##\` for main sections, \`###\` for subsections
-- **Emphasis:** Use \`**bold**\` for key terms, \`*italics*\` for subtle emphasis
-- **Lists:** Use \`-\` for bullet points, \`1.\` for numbered lists when ranking
-- **Code:** Use \`\`\`language\`\`\` for code blocks, \`code\` for inline tech terms
-- **Links:** Format as \`[text](url)\` when referencing projects
-- **Tables:** Use markdown tables for comparisons
-- **Quotes:** Use \`>\` for important notes or highlights
-- **Dividers:** Use \`---\` for section breaks
-
-**Tone:** Professional yet conversational, well-structured, and visually appealing.`;
-
-    const input: AnswerQuestionsFromResumeInput = {
-      resume: enhancedContext,
-      question: enhancedQuestion,
-    };
-    
-    const result = await answerQuestionsFromResume(input);
-    
-    // Enhanced post-processing for better markdown formatting
-    let formattedAnswer = result.answer;
-    
-    // Ensure proper markdown structure
-    if (!formattedAnswer.includes('**') && !formattedAnswer.includes('##')) {
-      const paragraphs = formattedAnswer.split('\n\n').filter(p => p.trim());
-      
-      if (paragraphs.length > 1) {
-        // Add structure to unformatted responses
-        const title = paragraphs[0].length < 100 ? paragraphs[0] : "Response";
-        formattedAnswer = `## ${title}\n\n${paragraphs.slice(1).join('\n\n')}`;
-      } else {
-        formattedAnswer = `## Response\n\n${formattedAnswer}`;
-      }
-    }
-    
-    // Add helpful footer if response seems incomplete
-    if (formattedAnswer.length < 100) {
-      formattedAnswer += '\n\n---\n\n*💡 **Tip:** Try asking more specific questions about my projects, skills, or experience for detailed responses.*';
-    }
-    
-    return formattedAnswer;
-    
-  } catch (error) {
-    console.error("Error in handleChatbotInteraction:", error);
-    
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    
-    return `## ⚠️ Service Temporarily Unavailable
-
-I encountered an issue processing your request: **${errorMessage}**
-
-### 🔧 What you can try:
-- **Refresh** and try again in a few moments
-- **Simplify** your question or break it into smaller parts  
-- **Check** that all required services are running
-- **Contact** support if the issue persists
-
-### 💡 Alternative Approach:
-Try asking about specific topics like:
-- My technical skills and experience
-- Specific projects from my portfolio
-- Career background and achievements
-
----
-
-*If this error continues, please check the server logs or contact technical support.*`;
-  }
+  // Truncate to word limit
+  return truncateToWordLimit(cleaned, MAX_DESCRIPTION_WORDS);
 }
 
-// Enhanced README summarization with comprehensive tech stack detection
+// Generate fallback description - now accepts partial repository data
+function generateFallbackDescription(
+  repoName: string, 
+  language?: string | null, 
+  stargazersCount: number = 0
+): string {
+  const templates = [
+    `A ${language || 'software'} project showcasing modern development practices and clean architecture.`,
+    `${repoName} demonstrates innovative solutions using ${language || 'cutting-edge'} technology.`,
+    `Professional ${language || 'software'} development project with focus on quality and performance.`,
+    `Modern application built with ${language || 'advanced'} technologies and best practices.`,
+    `Comprehensive ${language || 'software'} solution designed for scalability and maintainability.`
+  ];
+  
+  // Use repo name hash to consistently pick the same template
+  const templateIndex = repoName.length % templates.length;
+  let description = templates[templateIndex];
+  
+  // Add star information if significant
+  if (stargazersCount > 0) {
+    description += ` Features ${stargazersCount} GitHub stars.`;
+  }
+  
+  return truncateToWordLimit(description, MAX_DESCRIPTION_WORDS);
+}
+
+// Check if description is meaningful
+function isDescriptionMeaningful(description: string | null | undefined): boolean {
+  if (!description) return false;
+  
+  const cleanDesc = description.trim().toLowerCase();
+  const genericPhrases = [
+    'no description', 'add description', 'todo', 'coming soon',
+    'work in progress', 'wip', 'placeholder', 'description here'
+  ];
+  
+  if (cleanDesc.length < 15) return false;
+  if (genericPhrases.some(phrase => cleanDesc.includes(phrase))) return false;
+  
+  return true;
+}
+
+// Enhanced README summarization with strict word limit
 export async function summarizeProjectReadme(
   readmeContent: string, 
   repoDescription?: string,
   repoName?: string
 ): Promise<ProjectSummaryResult> {
   try {
+    // If we have a meaningful default description, use it (truncated)
+    if (isDescriptionMeaningful(repoDescription)) {
+      return { 
+        summary: cleanAndTruncateDescription(repoDescription!),
+        techStack: []
+      };
+    }
+
     // Enhanced input validation
     if (!readmeContent?.trim()) {
       return { 
-        summary: repoDescription 
-          ? `## 📁 ${repoName || "Project"} Overview\n\n${repoDescription}\n\n> *Note: No README content was provided for analysis.*`
-          : `## 📁 ${repoName || "Project"}\n\n*No README content or description available for this project.*`,
+        summary: generateFallbackDescription(repoName || "Project", null, 0),
         techStack: []
       };
     }
     
-    // Truncate extremely large inputs for performance
+    // Truncate content for processing
     const processedContent = readmeContent.length > MAX_README_LENGTH 
-      ? readmeContent.substring(0, MAX_README_LENGTH) + "\n\n*[Content truncated for processing]*"
+      ? readmeContent.substring(0, MAX_README_LENGTH)
       : readmeContent;
 
-    // Get GitHub context for better project understanding
-    const githubContext = await getCompleteProjectContext(DEFAULT_USERNAME);
-
-    // Enhanced input with comprehensive formatting instructions
-    const enhancedReadmeContent = `${processedContent}
-
-## 🔍 Additional Context
-${githubContext}
-
-## 📝 Formatting & Analysis Instructions
-
-**Primary Task:** Create a comprehensive, well-formatted markdown summary
-
-**Required Elements:**
-- **Project Title** with appropriate emoji
-- **Clear Description** of purpose and functionality  
-- **Key Features** in bullet points or table format
-- **Technology Stack** identification
-- **Usage Context** within the broader portfolio
-
-**Markdown Formatting Standards:**
-- Use \`##\` for main sections, \`###\` for subsections
-- Use \`**bold**\` for important terms and features
-- Use \`-\` for feature lists and bullet points
-- Use \`\`\`language\`\`\` for code examples
-- Use \`>\` for important notes or quotes
-- Use tables for structured comparisons
-- Include relevant emojis for visual appeal
-
-**Context Integration:**
-- Reference this project within the complete GitHub portfolio
-- Highlight unique aspects compared to other projects
-- Emphasize practical applications and real-world usage
-
-**Output Requirements:**
-- Professional yet engaging tone
-- Clear value proposition
-- Comprehensive but concise
-- Visually appealing with proper spacing`;
-
-    const input: SummarizeGithubReadmeInput = { 
-      readmeContent: enhancedReadmeContent 
-    };
-    
-    const result = await summarizeGithubReadme(input);
-    
-    // Enhanced tech stack detection with comprehensive keyword list
-    const techKeywords = [
-      // Frontend Frameworks & Libraries
-      "React", "Next.js", "Vue.js", "Angular", "Svelte", "Nuxt.js", "Gatsby",
-      "jQuery", "Alpine.js", "Lit", "Stencil", "Ember.js",
-      
-      // Backend Frameworks
-      "Express", "Fastify", "Koa", "NestJS", "Django", "Flask", "FastAPI",
-      "Spring", "Spring Boot", "Laravel", "Symfony", "Ruby on Rails", "Sinatra",
-      "ASP.NET", "Phoenix", "Gin", "Echo", "Fiber",
-      
-      // Programming Languages
-      "JavaScript", "TypeScript", "Python", "Java", "C#", "C++", "Go", "Rust",
-      "PHP", "Ruby", "Swift", "Kotlin", "Dart", "Scala", "Clojure", "Elixir",
-      "R", "MATLAB", "Perl", "Haskell", "F#", "OCaml",
-      
-      // Databases
-      "PostgreSQL", "MySQL", "MongoDB", "Redis", "SQLite", "MariaDB",
-      "CouchDB", "Cassandra", "DynamoDB", "Neo4j", "InfluxDB", "TimescaleDB",
-      
-      // Cloud & DevOps
-      "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Terraform", "Ansible",
-      "Jenkins", "GitLab CI", "GitHub Actions", "CircleCI", "Travis CI",
-      "Heroku", "Vercel", "Netlify", "DigitalOcean",
-      
-      // Mobile Development
-      "React Native", "Flutter", "Ionic", "Xamarin", "Cordova", "PhoneGap",
-      
-      // Styling & UI
-      "CSS", "Sass", "SCSS", "Less", "Stylus", "TailwindCSS", "Bootstrap",
-      "Material-UI", "Chakra UI", "Ant Design", "Semantic UI", "Bulma",
-      
-      // Build Tools & Bundlers
-      "Webpack", "Vite", "Rollup", "Parcel", "Gulp", "Grunt", "Babel",
-      "ESLint", "Prettier", "PostCSS",
-      
-      // Testing
-      "Jest", "Mocha", "Chai", "Cypress", "Playwright", "Selenium", "Puppeteer",
-      "Testing Library", "Vitest", "Karma", "Jasmine",
-      
-      // State Management
-      "Redux", "MobX", "Zustand", "Recoil", "Vuex", "Pinia", "NgRx",
-      
-      // APIs & Communication
-      "REST", "GraphQL", "gRPC", "WebSocket", "Socket.io", "Apollo",
-      "Prisma", "Sequelize", "TypeORM", "Mongoose",
-      
-      // Blockchain & Web3
-      "Solidity", "Web3", "Ethereum", "Blockchain", "Smart Contracts", "DeFi",
-      "NFT", "Motoko", "Internet Computer",
-      
-      // AI & Machine Learning
-      "TensorFlow", "PyTorch", "Scikit-learn", "Pandas", "NumPy", "OpenAI",
-      "Hugging Face", "LangChain", "OpenCV"
-    ];
-    
-    // Enhanced tech stack extraction with context awareness
-    const lowerContent = (result.summary + ' ' + (repoDescription || '')).toLowerCase();
-    const detectedTech = new Set<string>();
-    
-    techKeywords.forEach(keyword => {
-      const regex = new RegExp(`\\b${keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (regex.test(lowerContent)) {
-        detectedTech.add(keyword);
+    // Use Gemini 2.0 Flash-Lite for AI processing
+    const gemini = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+    const model = gemini.getGenerativeModel({ 
+      model: "gemini-2.0-flash-lite",
+      generationConfig: {
+        temperature: 0.3,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 150, // Reduced for concise responses
       }
     });
-    
-    // Add language from repository metadata if not detected
-    if (repoName && !Array.from(detectedTech).some(tech => 
-      tech.toLowerCase().includes(repoName.toLowerCase()))) {
-      // Repository-specific tech stack inference could be added here
-    }
-    
-    let finalSummary = result.summary;
-    
-    // Enhanced fallback handling with better formatting
-    if (result.summary === "Could not summarize README content." || 
-        result.summary === "Could not summarize README content due to an error." ||
-        result.summary.trim().length < 20) {
-      
-      finalSummary = repoDescription 
-        ? `## 📁 ${repoName || "Project"} Overview
 
-${repoDescription}
+    const prompt = `Analyze this project and create a concise description:
 
-### 🔧 Technology Stack
-${Array.from(detectedTech).length > 0 
-  ? Array.from(detectedTech).slice(0, 8).map(tech => `- \`${tech}\``).join('\n')
-  : '- *Technology stack to be documented*'
+${processedContent}
+
+Project: ${repoName || 'Unknown'}
+Existing description: ${repoDescription || 'None'}
+
+Return JSON with this exact structure:
+{
+  "summary": "Concise description (MAXIMUM 50 words)",
+  "techStack": ["tech1", "tech2", "tech3"]
 }
 
-> *Summary generated from repository description. README analysis was not available.*`
-        : `## 📁 ${repoName || "Project"}
+STRICT Requirements:
+- Summary MUST be 50 words or less
+- Focus on what the project does, not what it is
+- Make it engaging and professional
+- Extract key technologies used
+- Return only valid JSON
+- NO emojis or special characters`;
 
-*This project is currently being documented. Please check back later for a detailed description.*
-
-### 🔧 Detected Technologies
-${Array.from(detectedTech).length > 0 
-  ? Array.from(detectedTech).slice(0, 5).map(tech => `\`${tech}\``).join(', ')
-  : '*To be documented*'
-}`;
-    }
+    const response = await model.generateContent(prompt);
+    const text = response.response.text();
     
-    // Ensure proper markdown structure for AI-generated content
-    if (!finalSummary.includes('##') && !finalSummary.includes('**')) {
-      const lines = finalSummary.split('\n').filter(line => line.trim());
-      if (lines.length > 0) {
-        const title = repoName || lines[0].substring(0, 50);
-        const content = lines.slice(repoName ? 0 : 1).join('\n\n');
-        finalSummary = `## 📁 ${title}\n\n${content}`;
-      }
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found");
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      let summary = parsed.summary || repoDescription || generateFallbackDescription(repoName || "Project", null, 0);
+      
+      // Ensure word limit compliance
+      summary = cleanAndTruncateDescription(summary);
+      
+      return {
+        summary,
+        techStack: Array.isArray(parsed.techStack) ? parsed.techStack : []
+      };
+    } catch (parseError) {
+      throw new Error(`Failed to parse AI response: ${parseError}`);
     }
-
-    return { 
-      summary: finalSummary, 
-      techStack: Array.from(detectedTech).slice(0, 12) // Limit to most relevant technologies
-    };
     
   } catch (error) {
-    console.error("Error in summarizeProjectReadme:", error);
+    console.error(`Error summarizing README for ${repoName}:`, error);
     
-    const errorDetails = error instanceof Error ? error.message : 'Unknown error';
+    // Enhanced fallback
+    const fallbackDescription = repoDescription 
+      ? cleanAndTruncateDescription(repoDescription)
+      : generateFallbackDescription(repoName || "Project", null, 0);
     
     return { 
-      summary: repoDescription 
-        ? `## 📁 ${repoName || "Project"} Summary
-
-${repoDescription}
-
-> ⚠️ **Note:** Could not process README content due to an error: *${errorDetails}*
-
-### 🔧 Next Steps
-- Check server logs for detailed error information
-- Verify AI service availability
-- Ensure README content is properly formatted`
-        : `## ⚠️ Error Processing README
-
-*Could not analyze README content due to a processing error.*
-
-**Error Details:** ${errorDetails}
-
-### 🔧 Troubleshooting
-- Verify the README file exists and is accessible
-- Check AI service connectivity
-- Review server logs for detailed error information
-
-> Please contact support if this issue persists.`,
-      techStack: [],
-      error: errorDetails
+      summary: fallbackDescription,
+      techStack: extractTechStackFromText(readmeContent + ' ' + (repoDescription || ''))
     };
   }
 }
 
-// Enhanced helper function for specific project details
-export async function getProjectDetails(
-  projectName: string, 
-  username: string = DEFAULT_USERNAME
-): Promise<GitHubRepository | null> {
-  try {
-    const headers: HeadersInit = {
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    };
-
-    const token = process.env.GITHUB_ACCESS_TOKEN || process.env.NEXT_PUBLIC_GITHUB_ACCESS_TOKEN;
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${username}/${projectName}`, {
-      headers,
-      next: { revalidate: 3600 }
-    });
-    
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.warn(`Project ${projectName} not found for user ${username}`);
-        return null;
-      }
-      throw new Error(`Failed to fetch project details: ${response.status} ${response.statusText}`);
-    }
-    
-    return await response.json() as GitHubRepository;
-  } catch (error) {
-    console.error("Error fetching project details:", error);
-    return null;
-  }
+// Fallback tech stack extraction
+function extractTechStackFromText(text: string): string[] {
+  const techKeywords = [
+    'React', 'Next.js', 'Vue.js', 'Angular', 'Svelte', 'TypeScript', 'JavaScript',
+    'Python', 'Django', 'Flask', 'FastAPI', 'Node.js', 'Express', 'NestJS',
+    'Java', 'Spring', 'C#', 'ASP.NET', 'Go', 'Rust', 'PHP', 'Laravel',
+    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite', 'Docker', 'Kubernetes',
+    'AWS', 'Azure', 'GCP', 'Vercel', 'Netlify', 'TailwindCSS', 'Bootstrap',
+    'Jest', 'Cypress', 'Webpack', 'Vite', 'GraphQL', 'REST', 'HTML', 'CSS'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  const detectedTech = techKeywords.filter(tech => 
+    new RegExp(`\\b${tech.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lowerText)
+  );
+  
+  return [...new Set(detectedTech)].slice(0, 8);
 }
 
-// Export additional utility functions
-export { getCompleteProjectContext };
-
-// Health check function for monitoring
-export async function checkGitHubApiHealth(): Promise<{ status: 'healthy' | 'degraded' | 'down'; details: string }> {
-  try {
-    const response = await fetch(`${GITHUB_API_BASE}/rate_limit`, {
-      headers: {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        status: 'healthy',
-        details: `Rate limit: ${data.rate.remaining}/${data.rate.limit}`
-      };
-    } else {
-      return {
-        status: 'degraded',
-        details: `API responded with status ${response.status}`
-      };
-    }
-  } catch (error) {
-    return {
-      status: 'down',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-}
-
-// Add this function to your ai-actions.ts file
-
+// Enhanced tech stack extraction with Flash-Lite
 export async function extractTechStackFromCode(
   codeContext: string
 ): Promise<{ techStack: string[] }> {
   try {
-    // Use Gemini 2.0 Flash model for tech stack extraction
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.0-flash-exp",
+    const gemini = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+    const model = gemini.getGenerativeModel({ 
+      model: "gemini-2.0-flash-lite",
       generationConfig: {
         temperature: 0.2,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 512,
+        maxOutputTokens: 200,
       }
     });
 
-    const prompt = `
-Analyze the following project information and extract ALL possible technologies, frameworks, and tools used:
+    const prompt = `Extract technologies from this project:
 
-${codeContext}
+${codeContext.substring(0, 3000)}
 
-Return a JSON response with this structure:
-{
-  "techStack": ["array", "of", "all", "technologies", "detected"]
-}
+Return JSON: {"techStack": ["tech1", "tech2", ...]}
 
-Guidelines:
-- Include programming languages, frameworks, libraries, databases, tools, services
-- Be comprehensive - extract every technology mentioned or implied
-- Include both frontend and backend technologies
-- Include deployment, testing, and development tools
-- Use standard technology names (e.g., "React" not "react.js")
-- Return only valid JSON, no additional text
+Include: languages, frameworks, libraries, databases, tools
+Use standard names. Return only valid JSON.`;
 
-Focus on extracting technologies from:
-- File names and extensions
-- Dependencies and imports
-- Configuration files
-- Project structure
-- Documentation mentions
-`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("No JSON found in response");
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      return {
-        techStack: Array.isArray(parsed.techStack) ? parsed.techStack : []
-      };
-    } catch (parseError) {
-      console.warn("Failed to parse AI tech stack response:", parseError);
-      return { techStack: [] };
-    }
-
+    const response = await model.generateContent(prompt);
+    const text = response.response.text();
+    
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON found");
+    
+    const parsed = JSON.parse(jsonMatch[0]);
+    return { techStack: Array.isArray(parsed.techStack) ? parsed.techStack.slice(0, 8) : [] };
+    
   } catch (error) {
-    console.error("AI tech stack extraction error:", error);
-    return { techStack: [] };
+    console.warn("AI tech stack extraction failed, using fallback:", error);
+    return { techStack: extractTechStackFromText(codeContext) };
   }
 }
+
+// Enhanced chatbot interaction
+export async function handleChatbotInteraction(
+  question: string, 
+  resumeContext: string
+): Promise<string> {
+  try {
+    if (!question?.trim()) {
+      return "Please provide a question for me to answer.";
+    }
+
+    if (question.length > 2000) {
+      return "Please keep your question under 2000 characters for better processing.";
+    }
+
+    const input: AnswerQuestionsFromResumeInput = {
+      resume: resumeContext,
+      question: question,
+    };
+    
+    const result = await answerQuestionsFromResume(input);
+    return result.answer;
+    
+  } catch (error) {
+    console.error("Error in chatbot interaction:", error);
+    
+    return `I'm experiencing high demand right now. Please try again in a few moments, or ask a more specific question about my experience, projects, or skills.
+
+**Available Topics:**
+- Technical skills and experience
+- Specific projects from my portfolio  
+- Career background and achievements
+
+*Service will be restored shortly. Thank you for your patience.*`;
+  }
+}
+
+// Export utility functions
+export { generateFallbackDescription, cleanAndTruncateDescription, countWords };
