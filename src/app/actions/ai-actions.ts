@@ -3,6 +3,7 @@
 
 import { answerQuestionsFromResume, summarizeGithubReadme } from "@/ai/flows";
 import type { AnswerQuestionsFromResumeInput, SummarizeGithubReadmeInput } from "@/ai/flows";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Types for better type safety
 interface GitHubProfile {
@@ -43,6 +44,8 @@ const DEFAULT_USERNAME = "the-sauravkumar";
 const GITHUB_API_BASE = "https://api.github.com";
 const MAX_README_LENGTH = 50000;
 const REQUEST_TIMEOUT = 15000;
+// Initialize the GoogleGenerativeAI client
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
 
 // Enhanced GitHub API helper with better error handling and caching
 async function fetchGitHubProfile(username: string = DEFAULT_USERNAME): Promise<{
@@ -594,5 +597,74 @@ export async function checkGitHubApiHealth(): Promise<{ status: 'healthy' | 'deg
       status: 'down',
       details: error instanceof Error ? error.message : 'Unknown error'
     };
+  }
+}
+
+// Add this function to your ai-actions.ts file
+
+export async function extractTechStackFromCode(
+  codeContext: string
+): Promise<{ techStack: string[] }> {
+  try {
+    // Use Gemini 2.0 Flash model for tech stack extraction
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.0-flash-exp",
+      generationConfig: {
+        temperature: 0.2,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 512,
+      }
+    });
+
+    const prompt = `
+Analyze the following project information and extract ALL possible technologies, frameworks, and tools used:
+
+${codeContext}
+
+Return a JSON response with this structure:
+{
+  "techStack": ["array", "of", "all", "technologies", "detected"]
+}
+
+Guidelines:
+- Include programming languages, frameworks, libraries, databases, tools, services
+- Be comprehensive - extract every technology mentioned or implied
+- Include both frontend and backend technologies
+- Include deployment, testing, and development tools
+- Use standard technology names (e.g., "React" not "react.js")
+- Return only valid JSON, no additional text
+
+Focus on extracting technologies from:
+- File names and extensions
+- Dependencies and imports
+- Configuration files
+- Project structure
+- Documentation mentions
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("No JSON found in response");
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      return {
+        techStack: Array.isArray(parsed.techStack) ? parsed.techStack : []
+      };
+    } catch (parseError) {
+      console.warn("Failed to parse AI tech stack response:", parseError);
+      return { techStack: [] };
+    }
+
+  } catch (error) {
+    console.error("AI tech stack extraction error:", error);
+    return { techStack: [] };
   }
 }
