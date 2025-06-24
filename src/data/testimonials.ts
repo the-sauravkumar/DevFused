@@ -25,7 +25,7 @@ export const testimonialsData: Testimonial[] = [
     id: "3",
     quote: "I've collaborated with Saurav on multiple hackathons and side projects. He’s not only technically sound but also communicates his ideas clearly and adapts quickly to new tools. Whether it's setting up secure APIs, deploying apps, or handling real-time data, he's my go-to teammate.",
     author: "Meera Shah",
-    position: "Software Enginee",
+    position: "Software Engineer",
     company: "Zeta",
   },
 ];
