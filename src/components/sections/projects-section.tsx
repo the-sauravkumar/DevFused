@@ -311,7 +311,7 @@ async function processProjectWithGuaranteedTechStack(
 
     // Step 3: Use AI if description is not meaningful or tech stack is insufficient
     if (!isDescriptionMeaningful(description) || techStack.length < 2) {
-      console.log(`Using AI processing for ${repo.name}`);
+      // console.log(`Using AI processing for ${repo.name}`);
       usedAI = true;
 
       const readmeContent = await fetchReadmeContent(repo.owner.login, repo.name);
@@ -638,10 +638,10 @@ export function ProjectsSection() {
             >
               <div className="bg-muted/30 rounded-lg p-4 max-w-md mx-auto">
                 <p className="font-medium mb-1">
-                  ✅ {projects.length} repositories analyzed with complete tech stack visibility
+                  {projects.length} repositories analyzed with complete tech stack visibility
                 </p>
                 <p className="text-xs">
-                  🤖 AI enhancement: {aiProcessedCount} projects • 📁 File analysis: {projects.length - aiProcessedCount} projects
+                  AI enhancement: {aiProcessedCount} projects • 📁 File analysis: {projects.length - aiProcessedCount} projects
                 </p>
               </div>
             </motion.div>
