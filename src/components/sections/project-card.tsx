@@ -17,7 +17,6 @@ import {
   Zap
 } from "lucide-react";
 import type { Project } from "@/types/project";
-import ReactMarkdown from "react-markdown";
 
 interface ProjectCardProps {
   project: Project;
@@ -66,8 +65,9 @@ const getTechStackColor = (tech: string, index: number) => {
     'Redis': 'bg-red-500/10 text-red-700 border-red-500/20',
     'Docker': 'bg-blue-400/10 text-blue-600 border-blue-400/20',
     'CSS': 'bg-purple-500/10 text-purple-700 border-purple-500/20',
-    'REST': 'bg-orange-500/10 text-orange-700 border-orange-500/20',
-    'Redux': 'bg-purple-600/10 text-purple-700 border-purple-600/20',
+    'HTML': 'bg-orange-500/10 text-orange-700 border-orange-500/20',
+    'Rust': 'bg-orange-600/10 text-orange-800 border-orange-600/20',
+    'MySQL': 'bg-blue-700/10 text-blue-800 border-blue-700/20',
   };
   
   return techColors[tech as keyof typeof techColors] || 
@@ -80,12 +80,9 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const isRecent = project.updated_at && 
     new Date(project.updated_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  // Clean description for markdown rendering
-  const cleanDescription = (project.summaryDescription || project.description || "No description available.")
-    .replace(/^#+\s*/gm, '') // Remove markdown headers
-    .replace(/\*\*/g, '') // Remove bold markdown
-    .replace(/\*/g, '') // Remove italic markdown
-    .trim();
+  // Clean description - ensure it's never empty
+  const description = project.summaryDescription || project.description || 
+    `${project.name} - A ${project.language || 'software'} project showcasing modern development practices.`;
 
   return (
     <motion.div
@@ -150,25 +147,11 @@ export function ProjectCard({ project }: ProjectCardProps) {
             </Link>
           </CardTitle>
           
-          <CardDescription className="text-sm text-muted-foreground leading-relaxed mb-4" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
-            <div className="prose prose-sm max-w-none prose-p:my-1 prose-p:leading-relaxed">
-              <ReactMarkdown
-                components={{
-                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                  em: ({ children }) => <em className="italic">{children}</em>,
-                  code: ({ children }) => <code className="bg-muted px-1 py-0.5 rounded text-xs">{children}</code>,
-                  h1: ({ children }) => <h4 className="font-semibold text-foreground mb-1">{children}</h4>,
-                  h2: ({ children }) => <h5 className="font-semibold text-foreground mb-1">{children}</h5>,
-                  h3: ({ children }) => <h6 className="font-semibold text-foreground mb-1">{children}</h6>,
-                  ul: ({ children }) => <ul className="list-disc list-inside space-y-1">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal list-inside space-y-1">{children}</ol>,
-                  li: ({ children }) => <li className="text-sm">{children}</li>,
-                }}
-              >
-                {cleanDescription}
-              </ReactMarkdown>
-            </div>
+          <CardDescription 
+            className="text-sm text-muted-foreground leading-relaxed mb-4 min-h-[3rem]" 
+            style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}
+          >
+            {description}
           </CardDescription>
         </CardHeader>
 
