@@ -52,6 +52,28 @@ const glowVariants = {
   }
 };
 
+// Tech stack color mapping for better visual distinction
+const getTechStackColor = (tech: string, index: number) => {
+  const techColors = {
+    'React': 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+    'Next.js': 'bg-black/10 text-gray-800 border-gray-500/20 dark:text-gray-200',
+    'TypeScript': 'bg-blue-600/10 text-blue-700 border-blue-600/20',
+    'JavaScript': 'bg-yellow-500/10 text-yellow-700 border-yellow-500/20',
+    'Python': 'bg-green-500/10 text-green-700 border-green-500/20',
+    'Vue.js': 'bg-green-400/10 text-green-600 border-green-400/20',
+    'FastAPI': 'bg-teal-500/10 text-teal-700 border-teal-500/20',
+    'PostgreSQL': 'bg-indigo-500/10 text-indigo-700 border-indigo-500/20',
+    'Redis': 'bg-red-500/10 text-red-700 border-red-500/20',
+    'Docker': 'bg-blue-400/10 text-blue-600 border-blue-400/20',
+    'CSS': 'bg-purple-500/10 text-purple-700 border-purple-500/20',
+    'REST': 'bg-orange-500/10 text-orange-700 border-orange-500/20',
+    'Redux': 'bg-purple-600/10 text-purple-700 border-purple-600/20',
+  };
+  
+  return techColors[tech as keyof typeof techColors] || 
+    (index === 0 ? 'bg-primary/10 border-primary/30 text-primary font-medium' : 'hover:bg-primary/5 hover:border-primary/20');
+};
+
 export function ProjectCard({ project }: ProjectCardProps) {
   const techStack = project.summaryTechStack || project.topics || [];
   const isPopular = (project.stargazers_count || 0) > 10;
@@ -103,8 +125,8 @@ export function ProjectCard({ project }: ProjectCardProps) {
             </div>
           )}
 
-          <div className="flex items-start justify-between mb-3" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
-            <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+          <div className="flex items-start justify-between mb-4" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
+            <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 group-hover:from-primary/15 group-hover:to-primary/10 transition-all duration-300">
               <Code className="h-6 w-6 text-primary" />
             </div>
             <div className="flex space-x-2">
@@ -117,7 +139,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
             </div>
           </div>
           
-          <CardTitle className="text-xl font-bold leading-tight mb-2 group-hover:text-primary transition-colors duration-200" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
+          <CardTitle className="text-xl font-bold leading-tight mb-3 group-hover:text-primary transition-colors duration-200" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
             <Link 
               href={project.html_url || '#'} 
               target={project.html_url ? "_blank" : "_self"} 
@@ -128,7 +150,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
             </Link>
           </CardTitle>
           
-          <CardDescription className="text-sm text-muted-foreground leading-relaxed" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
+          <CardDescription className="text-sm text-muted-foreground leading-relaxed mb-4" style={{ paddingRight: (isPopular || isRecent) ? '80px' : '0px' }}>
             <div className="prose prose-sm max-w-none prose-p:my-1 prose-p:leading-relaxed">
               <ReactMarkdown
                 components={{
@@ -150,34 +172,48 @@ export function ProjectCard({ project }: ProjectCardProps) {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex-grow pt-0 space-y-4">
-          {/* Tech Stack */}
+        <CardContent className="flex-grow pt-0 pb-4">
+          {/* Enhanced Tech Stack Display */}
           {techStack.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary" />
                 <h4 className="text-sm font-semibold text-foreground">Tech Stack</h4>
               </div>
               <div className="flex flex-wrap gap-2">
-                {techStack.slice(0, 6).map((tech, index) => (
+                {techStack.slice(0, 8).map((tech, index) => (
                   <Badge 
                     key={tech} 
                     variant="outline" 
-                    className={`text-xs px-3 py-1 border-2 transition-all duration-200 hover:scale-105 ${
-                      index === 0 
-                        ? 'bg-primary/10 border-primary/30 text-primary font-medium' 
-                        : 'hover:bg-primary/5 hover:border-primary/20'
-                    }`}
+                    className={`text-xs px-3 py-1.5 border-2 transition-all duration-200 hover:scale-105 font-medium ${getTechStackColor(tech, index)}`}
                   >
                     {tech}
                   </Badge>
                 ))}
-                {techStack.length > 6 && (
-                  <Badge variant="outline" className="text-xs px-3 py-1 bg-muted/50">
-                    +{techStack.length - 6} more
+                {techStack.length > 8 && (
+                  <Badge variant="outline" className="text-xs px-3 py-1.5 bg-muted/50 border-muted-foreground/20 text-muted-foreground hover:bg-muted/70 transition-colors">
+                    +{techStack.length - 8} more
                   </Badge>
                 )}
               </div>
+              
+              {/* Primary language highlight */}
+              {project.language && (
+                <div className="pt-2 border-t border-border/30">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${
+                      project.language === 'JavaScript' ? 'bg-yellow-500' :
+                      project.language === 'TypeScript' ? 'bg-blue-600' :
+                      project.language === 'Python' ? 'bg-green-500' :
+                      project.language === 'React' ? 'bg-blue-500' :
+                      'bg-primary'
+                    }`} />
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Primary: {project.language}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
