@@ -5,7 +5,7 @@ import { motion, useInView } from 'framer-motion';
 import { ProjectCard } from './project-card';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertTriangle, ExternalLink, RefreshCw, Code } from 'lucide-react';
-import { summarizeProjectReadme } from '@/app/actions/ai-actions';
+import { summarizeProjectReadme, extractTechStackFromCode } from '@/app/actions/ai-actions';
 import type { GithubRepo, Project } from '@/types/project';
 
 const GITHUB_API_BASE_URL = `https://api.github.com/user/repos`;
@@ -13,14 +13,14 @@ const GITHUB_API_BASE_URL = `https://api.github.com/user/repos`;
 // Enhanced loading messages
 const LOADING_MESSAGES = [
   "Fetching repositories from GitHub...",
-  "Processing repositories intelligently...",
-  "Applying AI fallback where needed...",
-  "Extracting technology stacks...",
-  "Optimizing project insights...",
-  "Finalizing repository analysis..."
+  "Analyzing project structures...",
+  "Extracting tech stacks with AI...",
+  "Processing code dependencies...",
+  "Generating comprehensive insights...",
+  "Finalizing project analysis..."
 ];
 
-// Enhanced timeout helper with better error handling
+// Enhanced timeout helper
 function promiseWithTimeout<T>(
   promise: Promise<T>, 
   ms: number, 
@@ -76,7 +76,66 @@ async function fetchGithubProjects(): Promise<GithubRepo[]> {
   }
 }
 
-// Enhanced README fetching with better error handling
+// Fetch repository languages from GitHub API
+async function fetchRepositoryLanguages(owner: string, repoName: string): Promise<string[]> {
+  try {
+    const headers: HeadersInit = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    
+    const token = process.env.NEXT_PUBLIC_GITHUB_ACCESS_TOKEN;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/languages`, {
+      headers,
+      next: { revalidate: 3600 }
+    });
+
+    if (response.ok) {
+      const languages = await response.json();
+      return Object.keys(languages);
+    }
+    
+    return [];
+  } catch (error) {
+    console.warn(`Error fetching languages for ${owner}/${repoName}:`, error);
+    return [];
+  }
+}
+
+// Fetch repository file structure to analyze tech stack
+async function fetchRepositoryContents(owner: string, repoName: string): Promise<any[]> {
+  try {
+    const headers: HeadersInit = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    
+    const token = process.env.NEXT_PUBLIC_GITHUB_ACCESS_TOKEN;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents`, {
+      headers,
+      next: { revalidate: 3600 }
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    
+    return [];
+  } catch (error) {
+    console.warn(`Error fetching contents for ${owner}/${repoName}:`, error);
+    return [];
+  }
+}
+
+// Enhanced README fetching
 async function fetchReadmeContent(owner: string, repoName: string): Promise<string> {
   const readmeUrl = `https://api.github.com/repos/${owner}/${repoName}/readme`;
   
@@ -139,13 +198,80 @@ function decodeBase64Content(content: string): string {
   }
 }
 
+// Analyze file structure to detect tech stack
+function analyzeTechStackFromFiles(files: any[], languages: string[]): string[] {
+  const detectedTech = new Set<string>();
+  
+  // Add languages from GitHub API
+  languages.forEach(lang => detectedTech.add(lang));
+  
+  // Analyze file structure
+  files.forEach(file => {
+    const fileName = file.name.toLowerCase();
+    
+    // Package managers and config files
+    if (fileName === 'package.json') {
+      detectedTech.add('Node.js');
+      detectedTech.add('npm');
+    }
+    if (fileName === 'yarn.lock') detectedTech.add('Yarn');
+    if (fileName === 'pnpm-lock.yaml') detectedTech.add('pnpm');
+    if (fileName === 'requirements.txt' || fileName === 'pyproject.toml') {
+      detectedTech.add('Python');
+      detectedTech.add('pip');
+    }
+    if (fileName === 'pipfile') detectedTech.add('Pipenv');
+    if (fileName === 'poetry.lock') detectedTech.add('Poetry');
+    if (fileName === 'composer.json') detectedTech.add('Composer');
+    if (fileName === 'gemfile') detectedTech.add('Bundler');
+    if (fileName === 'cargo.toml') detectedTech.add('Cargo');
+    if (fileName === 'go.mod') detectedTech.add('Go Modules');
+    if (fileName === 'pom.xml') detectedTech.add('Maven');
+    if (fileName === 'build.gradle') detectedTech.add('Gradle');
+    
+    // Framework indicators
+    if (fileName === 'next.config.js' || fileName === 'next.config.ts') detectedTech.add('Next.js');
+    if (fileName === 'nuxt.config.js' || fileName === 'nuxt.config.ts') detectedTech.add('Nuxt.js');
+    if (fileName === 'vue.config.js') detectedTech.add('Vue.js');
+    if (fileName === 'angular.json') detectedTech.add('Angular');
+    if (fileName === 'svelte.config.js') detectedTech.add('Svelte');
+    if (fileName === 'gatsby-config.js') detectedTech.add('Gatsby');
+    
+    // Build tools
+    if (fileName === 'webpack.config.js') detectedTech.add('Webpack');
+    if (fileName === 'vite.config.js' || fileName === 'vite.config.ts') detectedTech.add('Vite');
+    if (fileName === 'rollup.config.js') detectedTech.add('Rollup');
+    if (fileName === 'gulpfile.js') detectedTech.add('Gulp');
+    
+    // Deployment and containerization
+    if (fileName === 'dockerfile') detectedTech.add('Docker');
+    if (fileName === 'docker-compose.yml') detectedTech.add('Docker Compose');
+    if (fileName === 'vercel.json') detectedTech.add('Vercel');
+    if (fileName === 'netlify.toml') detectedTech.add('Netlify');
+    
+    // Testing
+    if (fileName === 'jest.config.js') detectedTech.add('Jest');
+    if (fileName === 'cypress.json') detectedTech.add('Cypress');
+    if (fileName === 'playwright.config.js') detectedTech.add('Playwright');
+    
+    // Styling
+    if (fileName === 'tailwind.config.js') detectedTech.add('Tailwind CSS');
+    if (fileName === 'postcss.config.js') detectedTech.add('PostCSS');
+    
+    // Databases
+    if (fileName === 'prisma') detectedTech.add('Prisma');
+    if (fileName.includes('mongoose')) detectedTech.add('Mongoose');
+  });
+  
+  return Array.from(detectedTech);
+}
+
 // Check if description is meaningful
 function isDescriptionMeaningful(description: string | null | undefined): boolean {
   if (!description) return false;
   
   const cleanDesc = description.trim().toLowerCase();
   
-  // Check for empty or generic descriptions
   const genericPhrases = [
     'no description',
     'add description',
@@ -158,65 +284,116 @@ function isDescriptionMeaningful(description: string | null | undefined): boolea
     'add a description'
   ];
   
-  // Too short descriptions (less than 10 characters)
   if (cleanDesc.length < 10) return false;
-  
-  // Check for generic phrases
   if (genericPhrases.some(phrase => cleanDesc.includes(phrase))) return false;
   
   return true;
 }
 
-// AI processing with fallback strategy
-async function processProjectWithFallback(
+// Enhanced project processing with guaranteed tech stack
+async function processProjectWithGuaranteedTechStack(
   repo: GithubRepo
 ): Promise<{ description: string; techStack: string[]; usedAI: boolean }> {
-  // First, check if we have a meaningful default description
-  if (isDescriptionMeaningful(repo.description)) {
-    console.log(`Using default description for ${repo.name}`);
+  let description = repo.description || "";
+  let techStack: string[] = [];
+  let usedAI = false;
+
+  try {
+    // Step 1: Get basic tech stack from multiple sources
+    const [languages, contents] = await Promise.all([
+      fetchRepositoryLanguages(repo.owner.login, repo.name),
+      fetchRepositoryContents(repo.owner.login, repo.name)
+    ]);
+
+    // Step 2: Analyze file structure for tech stack
+    const fileBasedTech = analyzeTechStackFromFiles(contents, languages);
+    techStack = [...new Set([...repo.topics || [], ...fileBasedTech])];
+
+    // Step 3: Use AI if description is not meaningful or tech stack is insufficient
+    if (!isDescriptionMeaningful(description) || techStack.length < 2) {
+      console.log(`Using AI processing for ${repo.name}`);
+      usedAI = true;
+
+      const readmeContent = await fetchReadmeContent(repo.owner.login, repo.name);
+      
+      // Create comprehensive context for AI
+      const projectContext = {
+        name: repo.name,
+        description: repo.description,
+        language: repo.language,
+        topics: repo.topics,
+        detectedTech: techStack,
+        files: contents.map(f => f.name),
+        readme: readmeContent
+      };
+
+      const summaryResult = await promiseWithTimeout(
+        summarizeProjectReadme(
+          JSON.stringify(projectContext), 
+          repo.description || undefined,
+          repo.name
+        ),
+        25000,
+        new Error(`AI processing timeout for ${repo.name}`)
+      );
+
+      if (summaryResult?.summary && summaryResult.summary.trim().length > 0) {
+        description = summaryResult.summary;
+        
+        // Merge AI-detected tech stack with file-based detection
+        if (summaryResult.techStack && summaryResult.techStack.length > 0) {
+          techStack = [...new Set([...techStack, ...summaryResult.techStack])];
+        }
+      }
+    }
+
+    // Step 4: Ensure minimum tech stack
+    if (techStack.length === 0) {
+      if (repo.language) {
+        techStack = [repo.language];
+      } else {
+        // Use AI to extract tech stack from project name and description
+        usedAI = true;
+        const aiTechStack = await extractTechStackFromProjectInfo(repo.name, description);
+        techStack = aiTechStack;
+      }
+    }
+
+    // Step 5: Final fallbacks
+    if (!description || description.trim().length < 10) {
+      description = `${repo.name} is a ${repo.language || 'software'} project${repo.stargazers_count ? ` with ${repo.stargazers_count} stars` : ''} showcasing modern development practices.`;
+    }
+
+    if (techStack.length === 0) {
+      techStack = ['Software Development'];
+    }
+
     return {
-      description: repo.description!,
-      techStack: repo.topics || (repo.language ? [repo.language] : []),
+      description,
+      techStack: techStack.slice(0, 12), // Limit to 12 technologies
+      usedAI
+    };
+
+  } catch (error) {
+    console.warn(`Processing failed for ${repo.name}:`, error);
+    
+    return {
+      description: description || `${repo.name} - A ${repo.language || 'software'} project.`,
+      techStack: repo.topics?.length ? repo.topics : (repo.language ? [repo.language] : ['Software Development']),
       usedAI: false
     };
   }
-  
-  // Fallback to AI processing
-  console.log(`Falling back to AI processing for ${repo.name}`);
-  try {
-    const readmeContent = await fetchReadmeContent(repo.owner.login, repo.name);
-    
-    const summaryResult = await promiseWithTimeout(
-      summarizeProjectReadme(readmeContent, repo.description || undefined),
-      25000,
-      new Error(`AI processing timeout for ${repo.name}`)
-    );
+}
 
-    if (summaryResult?.summary && 
-        summaryResult.summary !== "Could not summarize README content." &&
-        summaryResult.summary !== "Could not summarize README content due to an error." &&
-        summaryResult.summary !== "No README content provided." &&
-        summaryResult.summary.trim().length > 0) {
-      
-      return {
-        description: summaryResult.summary,
-        techStack: summaryResult.techStack || repo.topics || [],
-        usedAI: true
-      };
-    }
-    
-    throw new Error("Invalid AI response");
+// AI-based tech stack extraction from project info
+async function extractTechStackFromProjectInfo(projectName: string, description: string): Promise<string[]> {
+  try {
+    const context = `Project: ${projectName}\nDescription: ${description}`;
+    const result = await extractTechStackFromCode(context);
+    return result.techStack || [];
   } catch (error) {
-    console.warn(`AI processing failed for ${repo.name}:`, error);
-    
-    // Final fallback - create a basic description
-    const fallbackDescription = `${repo.name} is a ${repo.language || 'software'} project${repo.stargazers_count ? ` with ${repo.stargazers_count} stars` : ''}.`;
-    
-    return {
-      description: fallbackDescription,
-      techStack: repo.topics || (repo.language ? [repo.language] : []),
-      usedAI: false
-    };
+    console.warn(`AI tech stack extraction failed for ${projectName}:`, error);
+    return ['Software Development'];
   }
 }
 
@@ -294,12 +471,12 @@ export function ProjectsSection() {
       setProcessingStatus(LOADING_MESSAGES[1]);
       setCurrentMessageIndex(1);
       
-      // Process repositories with smart fallback strategy
+      // Process ALL repositories with guaranteed tech stack extraction
       const projectsWithSummariesPromises = fetchedRepos.map(async (repo, index) => {
-        setProcessingStatus(`Processing ${repo.name}... (${index + 1}/${fetchedRepos.length})`);
+        setProcessingStatus(`Analyzing ${repo.name} with comprehensive tech detection... (${index + 1}/${fetchedRepos.length})`);
         setProcessedCount(index + 1);
         
-        const result = await processProjectWithFallback(repo);
+        const result = await processProjectWithGuaranteedTechStack(repo);
         
         if (result.usedAI) {
           setAiProcessedCount(prev => prev + 1);
@@ -323,7 +500,7 @@ export function ProjectsSection() {
           return { 
             ...repo,
             summaryDescription: repo.description || `${repo.name} - A ${repo.language || 'software'} project.`,
-            summaryTechStack: repo.topics || (repo.language ? [repo.language] : []),
+            summaryTechStack: repo.topics?.length ? repo.topics : (repo.language ? [repo.language] : ['Software Development']),
           } as Project;
         }
       });
@@ -363,7 +540,7 @@ export function ProjectsSection() {
             Featured <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-600">Projects</span>
           </motion.h2>
           <motion.p variants={subtitleAnimation} className="text-muted-foreground max-w-2xl mx-auto text-lg leading-relaxed">
-            A curated collection of my latest work, intelligently processed with AI fallback for enhanced descriptions.
+            A comprehensive collection of my projects with AI-powered tech stack analysis ensuring complete visibility into every technology used.
           </motion.p>
         </motion.div>
 
@@ -382,8 +559,8 @@ export function ProjectsSection() {
             </p>
             {totalCount > 0 && (
               <div className="text-sm text-muted-foreground mb-4 space-y-1">
-                <p>Processing {processedCount} of {totalCount} repositories</p>
-                <p className="text-xs">AI fallback used for {aiProcessedCount} projects</p>
+                <p>Analyzing {processedCount} of {totalCount} repositories</p>
+                <p className="text-xs">AI enhancement applied to {aiProcessedCount} projects</p>
               </div>
             )}
             <div className="w-64 h-2 bg-muted rounded-full overflow-hidden">
@@ -452,16 +629,21 @@ export function ProjectsSection() {
               </motion.div>
             )}
 
-            {/* Processing Summary */}
+            {/* Enhanced Processing Summary */}
             <motion.div
               className="mt-8 text-center text-sm text-muted-foreground"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1 }}
             >
-              <p>
-                Processed {projects.length} repositories • AI fallback used for {aiProcessedCount} projects
-              </p>
+              <div className="bg-muted/30 rounded-lg p-4 max-w-md mx-auto">
+                <p className="font-medium mb-1">
+                  ✅ {projects.length} repositories analyzed with complete tech stack visibility
+                </p>
+                <p className="text-xs">
+                  🤖 AI enhancement: {aiProcessedCount} projects • 📁 File analysis: {projects.length - aiProcessedCount} projects
+                </p>
+              </div>
             </motion.div>
           </>
         )}
