@@ -110,7 +110,7 @@ export function AboutSection() {
           About <span className="text-primary">Me</span>
         </motion.h2>
         <motion.p variants={subtitleAnimation} className="text-center text-muted-foreground max-w-2xl mx-auto mt-4 text-lg">
-          {resumeData.personalInfo.summary}
+          {resumeData["about-section-summary"]}
         </motion.p>
       </motion.div>
 

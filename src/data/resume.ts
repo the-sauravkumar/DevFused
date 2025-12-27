@@ -52,6 +52,7 @@ export interface ResumeData {
   projects: ResumeProject[];
   achievements: string[];
   certifications?: string[];
+  "about-section-summary": string;
 }
 
 // 2. Resume Data
@@ -67,6 +68,8 @@ export const resumeData: ResumeData = {
     linkedin: "https://linkedin.com/in/-saurav-kumar-",
     github: "https://github.com/the-sauravkumar",
   },
+  "about-section-summary":
+    "Software Engineer based in New Delhi, building secure, scalable platforms across finance and AI. I focus on clean architecture, information security, and production-grade APIs—working primarily with C#, .NET, Python, React, and modern cloud tooling (AWS, Vercel). I love turning requirements into resilient systems and clear user experiences.",
   experience: [
     {
       title: "Software Development Apprentice",
