@@ -58,7 +58,7 @@ export interface ResumeData {
 export const resumeData: ResumeData = {
   personalInfo: {
     name: "Saurav Kumar",
-    title: "Software Engineer I | Backend & Payments Systems",
+    title: "Software Engineer",
     summary:
       "Meticulous Software Engineer delivering secure, scalable solutions for financial platforms. Proficient in programming, logic design, and adhering to strict Quality Control standards. Skilled in production incident management, information security, and collaborating within matrix-based teams. Self-motivated professional committed to translating technical requirements into high-quality software under strict timelines.",
     location: "New Delhi, India",
