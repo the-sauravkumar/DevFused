@@ -4,6 +4,19 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { answerQuestionsFromResume, summarizeGithubReadme } from "@/ai/flows";
 import type { AnswerQuestionsFromResumeInput, SummarizeGithubReadmeInput } from "@/ai/flows";
 
+// Minimal TS shim so 'process' is recognized without relying on global Node types
+declare const process: { env?: Record<string, string | undefined> };
+
+function getGoogleApiKey(): string {
+  const key = process?.env?.GOOGLE_AI_API_KEY;
+  if (!key) {
+    throw new Error(
+      "GOOGLE_AI_API_KEY is not set. Define it in your environment to enable AI features."
+    );
+  }
+  return key;
+}
+
 // Types for better type safety
 interface GitHubProfile {
   name: string;
@@ -147,7 +160,7 @@ export async function summarizeProjectReadme(
       : readmeContent;
 
     // Use Gemini 2.0 Flash-Lite for AI processing
-    const gemini = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+    const gemini = new GoogleGenerativeAI(getGoogleApiKey());
     const model = gemini.getGenerativeModel({ 
       model: "gemini-2.0-flash-lite",
       generationConfig: {
@@ -239,7 +252,7 @@ export async function extractTechStackFromCode(
   codeContext: string
 ): Promise<{ techStack: string[] }> {
   try {
-    const gemini = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+    const gemini = new GoogleGenerativeAI(getGoogleApiKey());
     const model = gemini.getGenerativeModel({ 
       model: "gemini-2.0-flash-lite",
       generationConfig: {

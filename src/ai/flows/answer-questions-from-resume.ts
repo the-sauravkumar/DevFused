@@ -48,15 +48,18 @@ const answerQuestionsFromResumeFlow = ai.defineFlow(
     outputSchema: AnswerQuestionsFromResumeOutputSchema,
   },
   async input => {
-    const { output, response: rawResponse } = await prompt(input);
+    const result = await prompt(input);
+    const output = result.output;
+    const rawResponse: any = (result as any).response;
     if (output) {
       return output;
     } else {
-      const finishReason = rawResponse.candidates[0]?.finishReason;
-      const safetyRatings = rawResponse.candidates[0]?.safetyRatings;
+      const finishReason = rawResponse?.candidates?.[0]?.finishReason;
+      const safetyRatings = rawResponse?.candidates?.[0]?.safetyRatings;
       let rawOutputText = 'No raw text found in response parts.';
-      if (rawResponse.candidates[0]?.message?.parts) {
-        rawOutputText = rawResponse.candidates[0].message.parts.map(p => p.text).join('');
+      const parts = rawResponse?.candidates?.[0]?.message?.parts ?? [];
+      if (Array.isArray(parts) && parts.length > 0) {
+        rawOutputText = parts.map((p: any) => p?.text ?? '').join('');
       }
       
       console.error(
