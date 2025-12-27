@@ -200,8 +200,8 @@ function cleanAndTruncateDescription(description: string): string {
     .replace(/[📁🔧⚠️💡🎯✨📝🌍📚👥🔗🚀⭐🍴📅🏷️📊]/g, '') // Remove emojis
     .trim();
 
-  // Truncate to word limit
-  return truncateToWordLimit(cleaned, MAX_DESCRIPTION_WORDS);
+  // Return cleaned description without truncating word count
+  return cleaned;
 }
 
 // Generate fallback description - now accepts partial repository data
@@ -226,8 +226,9 @@ function generateFallbackDescription(
   if (stargazersCount > 0) {
     description += ` Features ${stargazersCount} GitHub stars.`;
   }
-  
-  return truncateToWordLimit(description, MAX_DESCRIPTION_WORDS);
+
+  // Return full description without truncation
+  return description;
 }
 
 // Check if description is meaningful
@@ -279,13 +280,7 @@ export async function summarizeProjectReadme(
     const selectedModel = await ensureModelId(apiKey);
     const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({ 
-      model: selectedModel,
-      generationConfig: {
-        temperature: 0.3,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 150,
-      }
+      model: selectedModel
     });
 
     const prompt = `Analyze this project and create a concise description:
@@ -295,15 +290,14 @@ ${processedContent}
 Project: ${repoName || 'Unknown'}
 Existing description: ${repoDescription || 'None'}
 
-Return JSON with this exact structure:
+Return JSON with this structure:
 {
-  "summary": "Concise description (MAXIMUM 50 words)",
+  "summary": "Concise description",
   "techStack": ["tech1", "tech2", "tech3"]
 }
 
-STRICT Requirements:
-- Summary MUST be 50 words or less
-- Focus on what the project does, not what it is
+Requirements:
+- Focus on what the project does
 - Make it engaging and professional
 - Extract key technologies used
 - Return only valid JSON
@@ -319,7 +313,7 @@ STRICT Requirements:
       const parsed = JSON.parse(jsonMatch[0]);
       let summary = parsed.summary || repoDescription || generateFallbackDescription(repoName || "Project", null, 0);
       
-      // Ensure word limit compliance
+      // Clean description without enforcing word limit
       summary = cleanAndTruncateDescription(summary);
       
       return {
@@ -373,13 +367,7 @@ export async function extractTechStackFromCode(
     const selectedModel = await ensureModelId(apiKey);
     const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({ 
-      model: selectedModel,
-      generationConfig: {
-        temperature: 0.2,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 200,
-      }
+      model: selectedModel
     });
 
     const prompt = `Extract technologies from this project:
@@ -425,13 +413,7 @@ export async function handleChatbotInteraction(
     const selectedModel = await ensureModelId(apiKey);
     const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({ 
-      model: selectedModel,
-      generationConfig: {
-        temperature: 0.3,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 300,
-      }
+      model: selectedModel
     });
 
     const prompt = `You are an AI assistant that answers questions about a person based on their structured resume JSON.\n\nResume JSON:\n${resumeContext}\n\nQuestion:\n${question}\n\nAnswer clearly and concisely.`;
