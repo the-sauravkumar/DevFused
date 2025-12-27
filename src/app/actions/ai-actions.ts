@@ -1,20 +1,135 @@
 "use server";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { answerQuestionsFromResume, summarizeGithubReadme } from "@/ai/flows";
-import type { AnswerQuestionsFromResumeInput, SummarizeGithubReadmeInput } from "@/ai/flows";
+import { cookies } from "next/headers";
+import type { SummarizeGithubReadmeInput } from "@/ai/flows";
 
 // Minimal TS shim so 'process' is recognized without relying on global Node types
 declare const process: { env?: Record<string, string | undefined> };
+const GOOGLE_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1/models";
 
-function getGoogleApiKey(): string {
-  const key = process?.env?.GOOGLE_AI_API_KEY;
+// Dynamic cookie strategy:
+// Store both apiKey and modelId in a single cookie whose name is derived
+// from the selected model id (sanitized). This removes any hard-coded cookie names.
+function sanitizeCookieName(name: string): string {
+  return name.replace(/[^a-z0-9_-]/gi, "_");
+}
+
+type CookieKV = { apiKey?: string; modelId?: string };
+
+async function getCookieRecords(): Promise<Array<{ name: string; value: CookieKV }>> {
+  const jar = await cookies();
+  // getAll is available in Next.js 15; iterate and parse JSON values
+  const all = jar.getAll?.() ?? [] as Array<{ name: string; value: string }>;
+  const records: Array<{ name: string; value: CookieKV }> = [];
+  for (const c of all) {
+    try {
+      const parsed = JSON.parse(c.value);
+      if (parsed && (typeof parsed.apiKey === "string" || typeof parsed.modelId === "string")) {
+        records.push({ name: c.name, value: parsed });
+      }
+    } catch {
+      // ignore non-JSON cookies
+    }
+  }
+  return records;
+}
+
+async function getGoogleApiKey(): Promise<string> {
+  const records = await getCookieRecords();
+  const cookieKey = records.find(r => typeof r.value.apiKey === "string")?.value.apiKey;
+  const envKey = process?.env?.GOOGLE_AI_API_KEY;
+  const key = cookieKey || envKey;
   if (!key) {
     throw new Error(
-      "GOOGLE_AI_API_KEY is not set. Define it in your environment to enable AI features."
+      "Google API key missing. Open chatbot settings to add your key."
     );
   }
   return key;
+}
+
+async function getSelectedModelIdFromCookie(): Promise<string | null> {
+  const records = await getCookieRecords();
+  return records.find(r => typeof r.value.modelId === "string")?.value.modelId ?? null;
+}
+
+async function fetchAvailableModels(apiKey: string): Promise<Array<{ name: string; displayName?: string }>> {
+  const url = `${GOOGLE_MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to list models: ${res.status} ${text}`);
+  }
+  const data = await res.json() as { models?: Array<{ name: string; displayName?: string }> };
+  return data.models ?? [];
+}
+
+function filterLiteModels(models: Array<{ name: string; displayName?: string }>): Array<{ name: string; displayName?: string }> {
+  // Heuristic: prefer lightweight variants commonly labeled with 'flash' or 'lite' or 'mini'
+  return models.filter(m => {
+    const id = m.name.toLowerCase();
+    return id.includes("flash") || id.includes("lite") || id.includes("mini");
+  });
+}
+
+async function ensureModelId(apiKey: string): Promise<string> {
+  const existing = await getSelectedModelIdFromCookie();
+  if (existing) return existing;
+  const models = filterLiteModels(await fetchAvailableModels(apiKey));
+  if (!models.length) {
+    throw new Error("No lite models available. Check API access or try again.");
+  }
+  const chosen = models[0].name;
+  // Persist choice and apiKey together in a dynamic cookie named by model id
+  const jar = await cookies();
+  const name = sanitizeCookieName(chosen);
+  const value: CookieKV = { apiKey, modelId: chosen };
+  jar.set(name, JSON.stringify(value), { httpOnly: true, sameSite: "lax", path: "/" });
+  return chosen;
+}
+
+export async function saveGoogleApiKey(apiKey: string): Promise<{ ok: boolean }> {
+  if (!apiKey || apiKey.length < 20) {
+    throw new Error("Please provide a valid Google API key.");
+  }
+  // Determine a default model and store both apiKey and modelId under a dynamic cookie name
+  const models = filterLiteModels(await fetchAvailableModels(apiKey));
+  const chosen = (models[0]?.name) ?? "models_gemini_default";
+  const name = sanitizeCookieName(chosen);
+  const jar = await cookies();
+  const value: CookieKV = { apiKey, modelId: chosen };
+  jar.set(name, JSON.stringify(value), { httpOnly: true, sameSite: "lax", path: "/" });
+  return { ok: true };
+}
+
+export async function listLiteModels(): Promise<Array<{ id: string; label: string }>> {
+  const key = await getGoogleApiKey();
+  const models = filterLiteModels(await fetchAvailableModels(key));
+  return models.map(m => ({ id: m.name, label: m.displayName || m.name }));
+}
+
+export async function saveSelectedModel(modelId: string): Promise<{ ok: boolean }> {
+  if (!modelId) throw new Error("Model id is required");
+  const jar = await cookies();
+  // Try to capture existing apiKey from any dynamic cookie, else use env fallback
+  const records = await getCookieRecords();
+  const current = records.find(r => typeof r.value.apiKey === "string") ?? null;
+  const apiKey = current?.value.apiKey ?? (process?.env?.GOOGLE_AI_API_KEY || "");
+  if (!apiKey) {
+    throw new Error("Google API key missing. Please save your API key first.");
+  }
+  const newName = sanitizeCookieName(modelId);
+  const newValue: CookieKV = { apiKey, modelId };
+  jar.set(newName, JSON.stringify(newValue), { httpOnly: true, sameSite: "lax", path: "/" });
+  // Optionally delete the old cookie to avoid stale entries
+  if (current && current.name !== newName) {
+    try { jar.delete?.(current.name); } catch {}
+  }
+  return { ok: true };
+}
+
+export async function getSelectedModel(): Promise<string | null> {
+  return await getSelectedModelIdFromCookie();
 }
 
 // Types for better type safety
@@ -159,15 +274,17 @@ export async function summarizeProjectReadme(
       ? readmeContent.substring(0, MAX_README_LENGTH)
       : readmeContent;
 
-    // Use Gemini 2.0 Flash-Lite for AI processing
-    const gemini = new GoogleGenerativeAI(getGoogleApiKey());
+    // Pick a lightweight model dynamically
+    const apiKey = await getGoogleApiKey();
+    const selectedModel = await ensureModelId(apiKey);
+    const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({ 
-      model: "gemini-2.0-flash-lite",
+      model: selectedModel,
       generationConfig: {
         temperature: 0.3,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 150, // Reduced for concise responses
+        maxOutputTokens: 150,
       }
     });
 
@@ -252,9 +369,11 @@ export async function extractTechStackFromCode(
   codeContext: string
 ): Promise<{ techStack: string[] }> {
   try {
-    const gemini = new GoogleGenerativeAI(getGoogleApiKey());
+    const apiKey = await getGoogleApiKey();
+    const selectedModel = await ensureModelId(apiKey);
+    const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({ 
-      model: "gemini-2.0-flash-lite",
+      model: selectedModel,
       generationConfig: {
         temperature: 0.2,
         topK: 40,
@@ -301,13 +420,24 @@ export async function handleChatbotInteraction(
       return "Please keep your question under 2000 characters for better processing.";
     }
 
-    const input: AnswerQuestionsFromResumeInput = {
-      resume: resumeContext,
-      question: question,
-    };
-    
-    const result = await answerQuestionsFromResume(input);
-    return result.answer;
+    // Answer via dynamic lightweight model
+    const apiKey = await getGoogleApiKey();
+    const selectedModel = await ensureModelId(apiKey);
+    const gemini = new GoogleGenerativeAI(apiKey);
+    const model = gemini.getGenerativeModel({ 
+      model: selectedModel,
+      generationConfig: {
+        temperature: 0.3,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 300,
+      }
+    });
+
+    const prompt = `You are an AI assistant that answers questions about a person based on their structured resume JSON.\n\nResume JSON:\n${resumeContext}\n\nQuestion:\n${question}\n\nAnswer clearly and concisely.`;
+    const response = await model.generateContent(prompt);
+    const text = response.response.text();
+    return text?.trim() || "I couldn't find an answer in the resume.";
     
   } catch (error) {
     console.error("Error in chatbot interaction:", error);

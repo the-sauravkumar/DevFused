@@ -5,11 +5,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatMessage, type Message } from './chat-message';
-import { MessageCircle, Send, RotateCcw, Loader2, X } from 'lucide-react';
+import { MessageCircle, Send, RotateCcw, Loader2, X, Settings } from 'lucide-react';
 import { siteConfig } from '@/config/site';
-import { handleChatbotInteraction } from '@/app/actions/ai-actions';
+import { handleChatbotInteraction, saveGoogleApiKey, listLiteModels, saveSelectedModel, getSelectedModel } from '@/app/actions/ai-actions';
 import { resumeData } from '@/data/resume';
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,12 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [models, setModels] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [settingsError, setSettingsError] = useState<string>("");
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
@@ -42,6 +49,53 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const openSettings = async () => {
+    setIsSettingsOpen(true);
+    setSettingsError("");
+    setIsFetchingModels(true);
+    try {
+      const current = await getSelectedModel();
+      setSelectedModel(current || "");
+      const items = await listLiteModels();
+      setModels(items);
+      if (!current && items.length) {
+        setSelectedModel(items[0].id);
+      }
+    } catch (err: any) {
+      setSettingsError(err?.message || "Enter API key to load models.");
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  const handleSaveApiKey = async () => {
+    setSettingsError("");
+    try {
+      await saveGoogleApiKey(apiKey.trim());
+      const items = await listLiteModels();
+      setModels(items);
+      if (items.length) {
+        setSelectedModel(items[0].id);
+      }
+    } catch (err: any) {
+      setSettingsError(err?.message || "Failed to save API key.");
+    }
+  };
+
+  const handleSaveModel = async () => {
+    setSettingsError("");
+    try {
+      if (!selectedModel) {
+        setSettingsError("Select a model first.");
+        return;
+      }
+      await saveSelectedModel(selectedModel);
+      setIsSettingsOpen(false);
+    } catch (err: any) {
+      setSettingsError(err?.message || "Failed to save model.");
+    }
+  };
 
   const handleSubmit = async (e?: React.FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
@@ -149,6 +203,15 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
                 <Button 
                   variant="ghost" 
                   size="icon" 
+                  onClick={openSettings} 
+                  aria-label="Chatbot Settings"
+                  className="hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
                   onClick={onClose} 
                   aria-label="Close Chat"
                   className="hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
@@ -157,6 +220,51 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
                 </Button>
               </div>
             </header>
+
+            {isSettingsOpen && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Chatbot Settings</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setIsSettingsOpen(false)}>
+                    Close
+                  </Button>
+                </div>
+                <div className="grid gap-2">
+                  <div className="grid gap-1">
+                    <label className="text-xs text-gray-600 dark:text-gray-300">Google API Key</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Paste your Google API key"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className="flex-grow"
+                      />
+                      <Button variant="secondary" onClick={handleSaveApiKey}>Save Key</Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-xs text-gray-600 dark:text-gray-300">Lite Model</label>
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={isFetchingModels ? "Loading models..." : "Select a model"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {models.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2 mt-2">
+                      <Button variant="secondary" onClick={handleSaveModel} disabled={!selectedModel}>Use Model</Button>
+                    </div>
+                  </div>
+                  {settingsError && (
+                    <div className="text-xs text-red-600 dark:text-red-400">{settingsError}</div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Chat Messages */}
             <ScrollArea className="flex-grow p-4 bg-gray-50 dark:bg-gray-800" ref={scrollAreaRef}>
