@@ -92,7 +92,7 @@ export const resumeData: ResumeData = {
       institution: "Lovely Professional University",
       period: "Aug 2021 – Aug 2025",
       location: "Jalandhar, Punjab, India",
-      details: ["CGPA: 8.02"],
+      details: ["CGPA: 8.04"],
     },
     {
       degree: "XIIth with Science",
