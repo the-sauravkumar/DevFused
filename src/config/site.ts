@@ -41,3 +41,4 @@ export const siteConfig: SiteConfig = {
   ],
   githubUsername: "the-sauravkumar",
   resumeUrl: "https://drive.google.com/file/d/1fCBu5q9hIptCDZ_Drtm7beStAKyuc0-_/view?usp=sharing",
+};
