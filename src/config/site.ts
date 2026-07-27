@@ -40,5 +40,4 @@ export const siteConfig: SiteConfig = {
     { title: "Contact", href: "#contact" },
   ],
   githubUsername: "the-sauravkumar",
-  resumeUrl: "/Current_CV.pdf", // Place your resume in the public folder
-};
+  resumeUrl: "https://drive.google.com/file/d/1fCBu5q9hIptCDZ_Drtm7beStAKyuc0-_/view?usp=sharing",
